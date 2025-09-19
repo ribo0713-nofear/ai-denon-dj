@@ -1,0 +1,16 @@
+# .gitignore
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Datenbank
+ki_dj_library.db
+*.db.backup
+
+# System
+.DS_Store
+
+# Archiv
+archiv/
