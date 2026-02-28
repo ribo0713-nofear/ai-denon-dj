@@ -396,7 +396,8 @@ def main():
                     denon_path = "../" + rel_to_root.replace("\\", "/")
                     
                     # Matrix mit der Realität überschreiben!
-                    cur.execute("UPDATE Track SET path = ? WHERE id = ?", (denon_path, track_id))
+                    cur.execute("UPDATE OR IGNORE Track SET path = ? WHERE id = ?", (denon_path, track_id))
+                    #cur.execute("UPDATE Track SET path = ? WHERE id = ?", (denon_path, track_id))
                     
                 else:
                     print(f" -> ⚠️ Übersprungen (Nicht in Denon DB gefunden): {filename}", flush=True)            
