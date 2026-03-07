@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import time
 import warnings
+import uuid
 from datetime import datetime
 from modules.smart_usb_mount import SmartUSBMount
 from modules.playlist_manager import PlaylistManager
@@ -169,14 +170,102 @@ def auto_mount_usb():
     
 def init_db(db_path):
     conn = sqlite3.connect(db_path)
+    table = "songs"
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS songs (
-            id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL UNIQUE, filename TEXT NOT NULL, 
-            bpm REAL, key_full TEXT, camelot_key TEXT, energy_avg REAL, energy_norm INTEGER, 
-            lufs REAL, duration REAL, mix_out_point REAL, rhythm_quality TEXT, 
-            first_downbeat REAL, bars_count INTEGER
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL UNIQUE, filename TEXT NOT NULL, bpm REAL, key_full TEXT, camelot_key TEXT, energy_avg REAL, energy_norm INTEGER, lufs REAL, duration REAL, mix_out_point REAL, rhythm_quality TEXT, first_downbeat REAL, bars_count INTEGER
         )""")
     conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "Smartlist"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" ( 
+            listUuid TEXT NOT NULL, title TEXT, parentPlaylistPath TEXT, nextPlaylistPath TEXT, nextListUuid TEXT, rules TEXT, lastEditTime DATETIME, CONSTRAINT C_NEXT_LIST_UNIQUE_FOR_PARENT UNIQUE(parentPlaylistPath,nextPlaylistPath,nextListUuid), CONSTRAINT C_NAME_UNIQUE_FOR_PARENT UNIQUE(title,parentPlaylistPath), PRIMARY KEY(listUuid)
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "PreparelistEntity"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, trackId INTEGER, trackNumber INTEGER, FOREIGN KEY(trackId) REFERENCES Track(id) ON DELETE CASCADE
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "PlaylistEntity"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, listId INTEGER, trackId INTEGER, databaseUuid TEXT, nextEntityId INTEGER, membershipReference INTEGER, FOREIGN KEY(listId) REFERENCES Playlist(id) ON DELETE CASCADE, CONSTRAINT C_NAME_UNIQUE_FOR_LIST UNIQUE(listId,databaseUuid,trackId)
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "Playlist"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, parentListId INTEGER, isPersisted BOOLEAN, nextListId INTEGER, lastEditTime DATETIME, isExplicitlyExported BOOLEAN, CONSTRAINT C_NEXT_LIST_ID_UNIQUE_FOR_PARENT UNIQUE(parentListId,nextListId), CONSTRAINT C_NAME_UNIQUE_FOR_PARENT UNIQUE(title,parentListId)
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "PerformanceData"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            trackId INTEGER, trackData BLOB, overviewWaveFormData BLOB, beatData BLOB, quickCues BLOB, loops BLOB, thirdPartySourceId INTEGER, activeOnLoadLoops INTEGER, FOREIGN KEY(trackId) REFERENCES Track(id) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY(trackId)
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "Track"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, playOrder INTEGER, length INTEGER, bpm INTEGER, year INTEGER, path TEXT, filename TEXT, bitrate INTEGER, bpmAnalyzed REAL, albumArtId INTEGER, fileBytes INTEGER, title TEXT, artist TEXT, album TEXT, genre TEXT, comment TEXT, label TEXT, composer TEXT, remixer TEXT, key INTEGER, rating INTEGER, albumArt TEXT, timeLastPlayed DATETIME, isPlayed BOOLEAN, fileType TEXT, isAnalyzed BOOLEAN, dateCreated DATETIME, dateAdded DATETIME, isAvailable BOOLEAN, isMetadataOfPackedTrackChanged BOOLEAN, isPerfomanceDataOfPackedTrackChanged BOOLEAN, playedIndicator INTEGER, isMetadataImported BOOLEAN, pdbImportKey INTEGER, streamingSource TEXT, uri TEXT, isBeatGridLocked BOOLEAN, originDatabaseUuid TEXT, originTrackId INTEGER, streamingFlags INTEGER, explicitLyrics BOOLEAN, lastEditTime DATETIME, FOREIGN KEY(albumArtId) REFERENCES AlbumArt(id) ON DELETE RESTRICT, CONSTRAINT C_path UNIQUE(path), CONSTRAINT C_originDatabaseUuid_originTrackId UNIQUE(originDatabaseUuid,originTrackId)
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "Pack"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, packId TEXT, changeLogDatabaseUuid TEXT, changeLogId INTEGER, lastPackTime DATETIME
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "AlbumArt"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT, albumArt BLOB
+        )""")
+    conn.close()
+
+    conn = sqlite3.connect(db_path)
+    table = "Information"
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS """+table+""" (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, uuid TEXT, schemaVersionMajor INTEGER, schemaVersionMinor INTEGER, schemaVersionPatch INTEGER, currentPlayedIndiciator INTEGER, lastRekordBoxLibraryImportReadCounter INTEGER
+        )""")
+    conn.close()
+
+#    new_uuid = str(uuid.uuid4())
+#    print(f"\n -> ⚠️ new_uuid: {new_uuid}", flush=True)
+#    conn = sqlite3.connect(db_path)
+##    conn.execute("INSERT INTO Information (uuid) VALUES ('ed9f2c05-2056-4381-a38e-7c129a3cce08')")
+#    conn.execute("INSERT INTO Information (uuid) VALUES (?)", ("'"+new_uuid+"'"))
+#    conn.close()
+
+# drop ?
+#   conn = sqlite3.connect(db_path)
+#   table = "songs"
+#   conn.execute("""
+#       CREATE TABLE IF NOT EXISTS """+table+""" (
+#
+#       )""")
+#   conn.close()
+
+
 
 def perform_scan(music_folder, db_path):
     print("\n[PHASE 1] Smart-Scan...", flush=True)
@@ -323,6 +412,114 @@ def main():
     # 5. DB UPDATE (THE HOLY GRAIL - V15)
     # ==========================================
     denon_db_path = os.path.join(MOUNT_TARGET, DENON_DB_REL_PATH)
+    print(f"\n -> ⚠️ db_path: {db_path}\n -> ⚠️ denon_db_path: {denon_db_path}", flush=True)
+    shutil.copyfile(db_path, denon_db_path)
+
+    print(f"\n[PHASE 5] Denon DB Update (qnd)...", flush=True)
+
+
+    new_uuid = str(uuid.uuid4())
+    print(f"\n -> ⚠️ new_uuid: {new_uuid}", flush=True)
+    #cur.execute("INSERT INTO Information (uuid) VALUES ('ed9f2c05-2056-4381-a38e-7c129a3cce08')")
+    #cur.execute("INSERT INTO Information VALUES (1, ?, 3, 0, 1, -6499374409812624455, NULL)", ("'"+new_uuid+"'"))
+
+
+    #cur = sqlite3.connect(db_path)
+    cur = sqlite3.connect(denon_db_path)
+    #cur.execute("INSERT INTO Information (uuid) VALUES ('ed9f2c05-2056-4381-a38e-7c129a3cce08')")
+    #cur.execute("INSERT INTO Information (uuid) VALUES (?)", ("'"+new_uuid+"'"))
+    #cur.close()
+# --
+# -- ------------------------------------------------------------------------------------------------------
+# --
+    cur.execute("INSERT INTO Information (id,uuid,schemaVersionMajor,schemaVersionMinor,schemaVersionPatch,currentPlayedIndiciator,lastRekordBoxLibraryImportReadCounter) VALUES (1,'c27b6322-f420-43f8-9a7e-1a9477944393',3,0,1,-6499374409812624455,NULL)")
+    cur.execute("INSERT INTO AlbumArt (id,hash,albumArt) VALUES (1,NULL,NULL)")
+    cur.execute("INSERT INTO Track (id,playOrder,length,bpm,year ,path,filename,bitrate,bpmAnalyzed,albumArtId,fileBytes,title,artist,album,genre,comment,label,composer,remixer,key,rating,albumArt,timeLastPlayed,isPlayed,fileType,isAnalyzed,dateCreated,dateAdded,isAvailable,isMetadataOfPackedTrackChanged,isPerfomanceDataOfPackedTrackChanged,playedIndicator,isMetadataImported,pdbImportKey,streamingSource,uri,isBeatGridLocked,originDatabaseUuid,originTrackId,streamingFlags,explicitLyrics,lastEditTime) SELECT id,bars_count,printf('%.0f', duration),NULL ,2026,'../denon_tst/'||filename,filename,printf('%.0f', bpm),NULL,1,NULL,filename,filename,'ALBUM',NULL,bars_count,NULL,NULL,NULL,-1,0,NULL,NULL,0,'mp3',0,1772278870,1772278870,1,0,0,NULL,1,0,NULL,NULL,0,'c27b6322-f420-43f8-9a7e-1a9477944393',id,0,0,1772278870 FROM songs order by id asc")
+    cur.execute("INSERT INTO PerformanceData (trackId,trackData,overviewWaveFormData,beatData,quickCues,loops,thirdPartySourceId,activeOnLoadLoops) SELECT id,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM songs order by id asc")
+    cur.execute("INSERT INTO Playlist (id,title,parentListId,isPersisted,nextListId,lastEditTime,isExplicitlyExported) VALUES (1,'test',0,1,0,'2026-03-01 13:22:45',1)")
+    cur.execute("INSERT INTO PlaylistEntity(listId,trackId,databaseUuid,nextEntityId,membershipReference) SELECT 1,id,'c27b6322-f420-43f8-9a7e-1a9477944393',id - 1,0 FROM Track order by playOrder asc")
+    cur.execute("update PlaylistEntity set nextEntityId=id -1; --INSERT INTO PlaylistEntity(id,listId,trackId,databaseUuid,nextEntityId,membershipReference)")
+
+    cur.execute("DROP INDEX IF EXISTS index_PreparelistEntity_trackId")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_PreparelistEntity_trackId ON PreparelistEntity ( trackId)")
+    cur.execute("DROP INDEX IF EXISTS index_PlaylistEntity_nextEntityId_listId")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_PlaylistEntity_nextEntityId_listId ON PlaylistEntity ( nextEntityId, listId)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_bpmAnalyzed")
+    cur.execute("CREATE INDEX index_Track_bpmAnalyzed ON Track(CAST(bpmAnalyzed + 0.5 AS int))")
+    cur.execute("DROP INDEX IF EXISTS index_Track_key")
+    #cur.execute("CREATE INDEX IF NOT EXISTS index_Track_key ON Track ( KEYWORDASCOLUMNNAME)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_album")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_album ON Track ( album)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_artist")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_artist ON Track ( artist)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_genre")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_genre ON Track ( genre)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_dateAdded")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_dateAdded ON Track ( dateAdded)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_year")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_year ON Track ( year)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_rating")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_rating ON Track ( rating)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_length")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_length ON Track ( length)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_title")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_title ON Track ( title)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_uri")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_uri ON Track ( uri)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_albumArtId")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_albumArtId ON Track ( albumArtId)")
+    cur.execute("DROP INDEX IF EXISTS index_Track_filename")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_Track_filename ON Track ( filename)")
+    cur.execute("DROP INDEX IF EXISTS index_AlbumArt_hash")
+    cur.execute("CREATE INDEX IF NOT EXISTS index_AlbumArt_hash ON AlbumArt ( hash)")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_before_delete_PlaylistEntity")
+    cur.execute("CREATE TRIGGER trigger_before_delete_PlaylistEntity BEFORE DELETE ON PlaylistEntity WHEN OLD.trackId > 0 BEGIN  UPDATE PlaylistEntity SET   nextEntityId = OLD.nextEntityId  WHERE nextEntityId = OLD.id  AND listId = OLD.listId; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_insert_isPersist")
+    cur.execute("CREATE TRIGGER trigger_after_insert_isPersist AFTER INSERT ON Playlist  WHEN new.isPersisted = 1 BEGIN  UPDATE Playlist SET   isPersisted = 1  WHERE id IN (SELECT parentListId FROM PlaylistAllParent WHERE id=new.id); END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_update_isPersistChild")
+    cur.execute("CREATE TRIGGER trigger_after_update_isPersistChild AFTER UPDATE ON Playlist  WHEN old.isPersisted = 1  AND new.isPersisted = 0 BEGIN  UPDATE Playlist SET   isPersisted = 0  WHERE id IN (SELECT childListId FROM PlaylistAllChildren WHERE id=new.id); END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_update_isPersistParent")
+    cur.execute("CREATE TRIGGER trigger_after_update_isPersistParent AFTER UPDATE ON Playlist  WHEN (old.isPersisted = 0  AND new.isPersisted = 1)  OR (old.parentListId != new.parentListId  AND new.isPersisted = 1) BEGIN  UPDATE Playlist SET   isPersisted = 1  WHERE id IN (SELECT parentListId FROM PlaylistAllParent WHERE id=new.id); END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_delete_List")
+    cur.execute("CREATE TRIGGER trigger_after_delete_List AFTER DELETE ON Playlist FOR EACH ROW BEGIN  UPDATE Playlist SET   nextListId = OLD.nextListId  WHERE nextListId = OLD.id;  DELETE FROM Playlist  WHERE parentListId = OLD.id; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_insert_List")
+    cur.execute("CREATE TRIGGER trigger_after_insert_List AFTER INSERT ON Playlist FOR EACH ROW BEGIN  UPDATE Playlist SET   nextListId = NEW.id  WHERE nextListId = -(1 + NEW.nextListId)  AND parentListId = NEW.parentListId; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_before_insert_List")
+    cur.execute("CREATE TRIGGER trigger_before_insert_List BEFORE INSERT ON Playlist FOR EACH ROW BEGIN  UPDATE Playlist SET   nextListId = -(1 + nextListId)  WHERE nextListId = NEW.nextListId  AND parentListId = NEW.parentListId; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_PerformanceData_after_update_Track_timestamp")
+    cur.execute("CREATE TRIGGER trigger_PerformanceData_after_update_Track_timestamp  AFTER UPDATE OF trackData, isAnalyzed, overviewWaveFormData, beatData, quickCues, loops, activeOnLoadLoops  ON PerformanceData  FOR EACH ROW BEGIN  UPDATE Track  SET lastEditTime = strftime('%s')  WHERE id = NEW.trackId; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_insert_Track_insert_performance_data")
+    cur.execute("CREATE TRIGGER trigger_after_insert_Track_insert_performance_data AFTER INSERT ON Track BEGIN  INSERT INTO PerformanceData(trackId) VALUES(NEW.id); END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_update_only_Track_timestamp")
+    cur.execute("CREATE TRIGGER trigger_after_update_only_Track_timestamp  AFTER UPDATE OF length, bpm, year, filename, bitrate, bpmAnalyzed, albumArtId,  title, artist, album, genre, comment, label, composer, remixer, key, rating, albumArt,  fileType, isAnalyzed, isBeatgridLocked, explicitLyrics  ON Track  FOR EACH ROW BEGIN  UPDATE Track SET lastEditTime = strftime('%s') WHERE ROWID=NEW.ROWID; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_update_Track_fix_origin")
+    cur.execute("CREATE TRIGGER trigger_after_update_Track_fix_origin AFTER UPDATE ON Track  WHEN IFNULL(NEW.originTrackId, 0) = 0  OR IFNULL(NEW.originDatabaseUuid, '') = '' BEGIN  UPDATE Track SET   originTrackId = NEW.id,   originDatabaseUuid = (SELECT uuid FROM Information)  WHERE track.id = NEW.id; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_insert_Track_fix_origin")
+    cur.execute("CREATE TRIGGER trigger_after_insert_Track_fix_origin AFTER INSERT ON Track  WHEN IFNULL(NEW.originTrackId, 0) = 0  OR IFNULL(NEW.originDatabaseUuid, '') = '' BEGIN  UPDATE Track SET   originTrackId = NEW.id,   originDatabaseUuid = (SELECT uuid FROM Information)  WHERE track.id = NEW.id; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_update_Track_check_Id")
+    cur.execute("CREATE TRIGGER trigger_after_update_Track_check_Id BEFORE UPDATE ON Track  WHEN NEW.id <> OLD.id BEGIN  SELECT RAISE(ABORT, 'Changing track id''s are not allowed'); END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_insert_Track_check_id")
+    cur.execute("CREATE TRIGGER trigger_after_insert_Track_check_id AFTER INSERT ON Track  WHEN NEW.id <= (SELECT seq FROM sqlite_sequence WHERE name = 'Track') BEGIN  SELECT RAISE(ABORT, 'Recycling deleted track id''s are not allowed'); END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_insert_Pack_changeLogId")
+    cur.execute("CREATE TRIGGER trigger_after_insert_Pack_changeLogId AFTER INSERT ON Pack FOR EACH ROW WHEN NEW.changeLogId = 0 BEGIN  UPDATE Pack SET changeLogId = 1 WHERE ROWID = NEW.ROWID; END")
+    cur.execute("DROP TRIGGER IF EXISTS trigger_after_insert_Pack_timestamp")
+    cur.execute("CREATE TRIGGER trigger_after_insert_Pack_timestamp AFTER INSERT ON Pack FOR EACH ROW WHEN NEW.lastPackTime IS NULL BEGIN  UPDATE Pack SET lastPackTime = strftime('%s') WHERE ROWID = NEW.ROWID; END")
+    cur.execute("DROP VIEW IF EXISTS PlaylistPath")
+#    cur.execute("CREATE VIEW PlaylistPath AS WITH RECURSIVE Heirarchy AS (  SELECT id AS child, parentListId AS parent, title AS name, 1 AS depth FROM Playlist  UNION ALL  SELECT child, parentListId AS parent, title AS name, h.depth + 1 AS depth FROM Playlist c  JOIN Heirarchy h ON h.parent = c.id  ORDER BY depth DESC ), OrderedList AS (  SELECT id , nextListId, 1 AS position  FROM Playlist  WHERE nextListId = 0  UNION ALL  SELECT c.id , c.nextListId , l.position + 1  FROM Playlist c  INNER JOIN OrderedList l  ON c.nextListId = l.id ), NameConcat AS (  SELECT   child AS id,   GROUP_CONCAT(name ,';') || ';' AS path  FROM  (   SELECT child, name   FROM Heirarchy   ORDER BY depth DESC  )  GROUP BY child ) SELECT  id,  path,  ROW_NUMBER() OVER  (   ORDER BY   (SELECT COUNT(*) FROM (SELECT * FROM Heirarchy WHERE child = id) ) DESC,   (SELECT position FROM OrderedList ol WHERE ol.id = c.id) ASC  ) AS position FROM Playlist c LEFT JOIN NameConcat g USING (id);DROP VIEW IF EXISTS PlaylistAllChildren;CREATE VIEW PlaylistAllChildren AS WITH FindAllChild AS ( SELECT id, id as childListId FROM Playlist UNION ALL SELECT recursiveCTE.id, Plist.id FROM Playlist Plist INNER JOIN FindAllChild recursiveCTE ON recursiveCTE.childListId = Plist.parentListId )")
+    #SELECT * FROM FindAllChild WHERE id <> childListId")
+    cur.execute("DROP VIEW IF EXISTS PlaylistAllParent")
+    cur.execute("CREATE VIEW PlaylistAllParent AS WITH FindAllParent AS (  SELECT id, parentListId FROM Playlist  UNION ALL  SELECT recursiveCTE.id, Plist.parentListId FROM Playlist Plist  INNER JOIN FindAllParent recursiveCTE  ON recursiveCTE.parentListId = Plist.id ) SELECT * FROM FindAllParent")
+    cur.execute("DROP VIEW IF EXISTS ChangeLog")
+    cur.execute("CREATE VIEW ChangeLog (id, trackId) AS SELECT 0, 0 WHERE FALSE")
+
+# --
+# --
+# -- ------------------------------------------------------------------------------------------------------
+    cur.commit()
+    cur.close()
+
+
+    denon_db_path = "do_nothing_from_here"
     if os.path.exists(denon_db_path):
         print(f"\n[PHASE 5] Denon DB Update (STRICT BOUNCER)...", flush=True)
         if not os.access(denon_db_path, os.W_OK):
@@ -333,6 +530,14 @@ def main():
             cur = dconn.cursor()
             
             # --- 1. MASTER UUID ABRUFEN ---
+
+
+            new_uuid = str(uuid.uuid4())
+            print(f"\n -> ⚠️ new_uuid: {new_uuid}", flush=True)
+            cur.execute("INSERT INTO Information (uuid) VALUES ('ed9f2c05-2056-4381-a38e-7c129a3cce08')")
+            #cur.execute("INSERT INTO Information VALUES (1, ?, 3, 0, 1, -6499374409812624455, NULL)", ("'"+new_uuid+"'"))
+
+
             cur.execute("SELECT uuid FROM Information LIMIT 1;")
             res = cur.fetchone()
             if not res:
